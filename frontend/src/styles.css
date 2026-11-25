@@ -75,7 +75,7 @@ body {
   letter-spacing: 0.08em;
 }
 .述 { color: var(--淡); margin: 0 0 1.1rem; font-size: 0.9rem; line-height: 1.55; max-width: 48rem }
-.阶条 { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.55rem; margin-bottom: 1.15rem }
+.阶条 { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.55rem; margin-bottom: 1.15rem }
 .阶 {
   background: var(--块);
   border: 1px solid var(--线);

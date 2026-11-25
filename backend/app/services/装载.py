@@ -2,7 +2,7 @@ import json
 import uuid
 from typing import Any
 
-from app.db import 连接
+from app.db import 连接, 写事务
 from app.services.时间 import 此刻, 标准化营业日
 
 
@@ -15,6 +15,7 @@ def 装载流水(事件: list[dict[str, Any]], 批次编号: str = "") -> dict:
     入账 = 0
     旁置 = 0
     try:
+      with 写事务(conn):
         for raw in 事件:
             流水号 = str(raw.get("流水号") or "").strip() or f"流-{uuid.uuid4().hex[:12]}"
             账户键 = str(raw.get("账户键") or "").strip()
@@ -64,7 +65,6 @@ def 装载流水(事件: list[dict[str, Any]], 批次编号: str = "") -> dict:
             "INSERT INTO 装载批次(编号, 时刻, 报告) VALUES (?,?,?)",
             (批, 此刻(), json.dumps(报告, ensure_ascii=False)),
         )
-        conn.commit()
-        return {"批次编号": 批, **报告}
+      return {"批次编号": 批, **报告}
     finally:
         conn.close()

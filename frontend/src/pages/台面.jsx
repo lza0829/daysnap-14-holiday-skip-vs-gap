@@ -36,6 +36,29 @@ export default function 台面() {
     }
   };
 
+  const 假期冒烟 = async () => {
+    set忙(true);
+    set讯("");
+    try {
+      await api.重置(true);
+      await api.装载夹具("假期中日夹具.json");
+      const a = await api.抽取("2026-11-20");
+      const b = await api.抽取("2026-11-21");
+      const c = await api.抽取("2026-11-22");
+      const r = await api.回放("2026-11-22");
+      const 核 = await api.核证("2026-11-21", "户甲");
+      await 刷新();
+      set讯(
+        `假期冒烟：11-21 营业=${b.是否营业} 占位=${b.占位}；11-22 回放通过=${r.通过} 差额=${r.差额}；` +
+          `户甲假期日 valid=${核.账户?.valid} 有行=${核.账户?.有行}`
+      );
+    } catch (e) {
+      set讯(String(e.message || e));
+    } finally {
+      set忙(false);
+    }
+  };
+
   const o = 总览 || {};
   return (
     <div>
@@ -48,16 +71,22 @@ export default function 台面() {
         <div className="阶"><div className="序">账户</div><b>{o.账户数 ?? "—"}</b><span>册内户数</span></div>
         <div className="阶"><div className="序">流水</div><b>{o.流水数 ?? "—"}</b><span>已入账</span></div>
         <div className="阶"><div className="序">快照</div><b>{o.快照数 ?? "—"}</b><span>有效行</span></div>
+        <div className="阶"><div className="序">占位</div><b>{o.占位数 ?? "—"}</b><span>假期非有效</span></div>
         <div className="阶"><div className="序">差额</div><b>{o.差额行数 ?? "—"}</b><span>清单行</span></div>
-        <div className="阶"><div className="序">旁置</div><b>{o.旁置数 ?? "—"}</b><span>未入账</span></div>
+        <div className="阶"><div className="序">断档</div><b>{o.断档数 ?? "—"}</b><span>待补（不含假期）</span></div>
       </div>
       <div className="行">
         <button disabled={忙} onClick={冒烟}>{忙 ? "跑着…" : "一键冒烟"}</button>
+        <button disabled={忙} className="水" onClick={假期冒烟}>{忙 ? "跑着…" : "假期冒烟"}</button>
         <button className="次" onClick={() => 刷新().catch((e) => set讯(String(e.message || e)))}>刷新总览</button>
         <button
           className="次"
           onClick={() =>
-            api.重置().then(刷新).then(() => set讯("已清空业务表")).catch((e) => set讯(String(e.message || e)))
+            api
+              .重置(true)
+              .then(刷新)
+              .then(() => set讯("已清空业务表与营业日历"))
+              .catch((e) => set讯(String(e.message || e)))
           }
         >
           清空业务表

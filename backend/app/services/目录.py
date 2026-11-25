@@ -1,4 +1,5 @@
 from app.db import 连接
+from app.services import 断档 as 断档服务
 
 
 def 总览() -> dict:
@@ -11,8 +12,10 @@ def 总览() -> dict:
             "账户数": 数("SELECT COUNT(*) FROM 账户"),
             "流水数": 数("SELECT COUNT(*) FROM 变动流水 WHERE 命运='已入账'"),
             "快照数": 数("SELECT COUNT(*) FROM 周期快照 WHERE 状态='有效'"),
+            "占位数": 数("SELECT COUNT(*) FROM 周期快照 WHERE 状态='假期占位'"),
             "差额行数": 数("SELECT COUNT(*) FROM 差额行"),
-            "断档数": 数("SELECT COUNT(*) FROM 断档记录"),
+            "断档数": 断档服务.待补断档数(conn),
+            "日历假日数": 数("SELECT COUNT(*) FROM 营业日历 WHERE 是否营业=0"),
             "跳变数": 数("SELECT COUNT(*) FROM 跳变记录"),
             "旁置数": 数("SELECT COUNT(*) FROM 旁置簿"),
             "抽取批次数": 数("SELECT COUNT(*) FROM 抽取批次"),

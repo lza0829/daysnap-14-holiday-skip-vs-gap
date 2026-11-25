@@ -10,6 +10,7 @@ import 差额清单 from "./pages/差额清单.jsx";
 import 断档跳变 from "./pages/断档跳变.jsx";
 import 旁置簿 from "./pages/旁置簿.jsx";
 import 台参 from "./pages/台参.jsx";
+import 营业日历 from "./pages/营业日历.jsx";
 
 const 主链 = [
   ["/", "台面"],
@@ -21,6 +22,7 @@ const 主链 = [
   ["/差额清单", "差额清单"],
 ];
 const 次链 = [
+  ["/营业日历", "营业日历"],
   ["/断档跳变", "断档跳变"],
   ["/旁置簿", "旁置簿"],
   ["/台参", "台参"],
@@ -56,6 +58,7 @@ export default function App() {
           <Route path="/周期快照" element={<周期快照 />} />
           <Route path="/回放核对" element={<回放核对 />} />
           <Route path="/差额清单" element={<差额清单 />} />
+          <Route path="/营业日历" element={<营业日历 />} />
           <Route path="/断档跳变" element={<断档跳变 />} />
           <Route path="/旁置簿" element={<旁置簿 />} />
           <Route path="/台参" element={<台参 />} />

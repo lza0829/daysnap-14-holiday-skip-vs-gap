@@ -15,7 +15,7 @@ export default function 断档跳变() {
   return (
     <div>
       <h1 className="题">断档跳变</h1>
-      <p className="述">缺前日快照记断档；偏离超过台参阈值记跳变。</p>
+      <p className="述">缺上一营业日有效镜记断档；偏离超过台参阈值记跳变。非营业日不在此列——假期永不记为待补断档。</p>
       <div className="行">
         <button className="次" onClick={() => 刷新().catch((e) => set讯(String(e.message || e)))}>刷新</button>
       </div>

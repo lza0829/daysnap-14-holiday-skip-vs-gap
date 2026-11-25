@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.db import 夹具目录, 连接
-from app.services import 回放, 抽取, 目录, 装载
+from app.services import 回放, 抽取, 目录, 装载, 日历, 日历变更, 日期核证, 断档 as 断档服务
 
 路由 = APIRouter(prefix="/api")
 
@@ -16,6 +16,19 @@ class 装载请求(BaseModel):
 class 营业日请求(BaseModel):
     营业日: str
     批次编号: str = ""
+    账户键: str = ""
+
+
+class 日历日请求(BaseModel):
+    日期: str = ""
+    营业日: str = ""
+    是否营业: bool = True
+    类型: str = ""
+    说明: str = ""
+
+
+class 日历批量请求(BaseModel):
+    条目: list = Field(default_factory=list)
 
 
 @路由.get("/健康")
@@ -69,11 +82,18 @@ def 列流水(营业日: str = "", 账户键: str = ""):
 
 
 @路由.get("/快照")
-def 列快照(营业日: str = "", 账户键: str = ""):
+def 列快照(营业日: str = "", 账户键: str = "", 含占位: bool = False, 状态: str = ""):
     conn = 连接()
     try:
-        sql = "SELECT * FROM 周期快照 WHERE 状态='有效'"
-        args: list = []
+        if 状态:
+            sql = "SELECT * FROM 周期快照 WHERE 状态=?"
+            args: list = [状态]
+        elif 含占位:
+            sql = "SELECT * FROM 周期快照 WHERE 状态 IN ('有效','假期占位')"
+            args = []
+        else:
+            sql = "SELECT * FROM 周期快照 WHERE 状态='有效'"
+            args = []
         if 营业日:
             sql += " AND 营业日=?"
             args.append(营业日)
@@ -106,7 +126,7 @@ def 列差额(回放批次编号: str = ""):
 def 列断档():
     conn = 连接()
     try:
-        return [dict(r) for r in conn.execute("SELECT * FROM 断档记录 ORDER BY 编号 DESC LIMIT 200")]
+        return 断档服务.列断档(conn, 200)
     finally:
         conn.close()
 
@@ -194,14 +214,60 @@ def _装载夹具文件(名: str):
     if not path.exists():
         raise HTTPException(404, f"夹具不存在: {名}")
     data = json.loads(path.read_text(encoding="utf-8"))
+    摘要 = 应用夹具声明(data)
     流水 = data.get("流水") or data.get("事件") or []
-    return 装载.装载流水(流水, str(data.get("批次编号") or ""))
+    try:
+        结果 = 装载.装载流水(流水, str(data.get("批次编号") or ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {**结果, "夹具声明": 摘要}
+
+
+def 应用夹具声明(data: dict) -> dict:
+    """夹具可声明营业日历与账户；幂等 upsert，便于假期夹具一键应用。"""
+    摘要 = {"日历": 0, "账户": 0}
+    for c in data.get("日历") or []:
+        try:
+            日历变更.改日(
+                str(c.get("日期") or c.get("营业日") or ""),
+                bool(c.get("是否营业", True)),
+                str(c.get("类型") or ""),
+                str(c.get("说明") or ""),
+            )
+            摘要["日历"] += 1
+        except 日历.日历冲突:
+            摘要["日历冲突"] = 摘要.get("日历冲突", 0) + 1
+    for a in data.get("账户") or []:
+        账户键 = str(a.get("账户键") or "").strip()
+        if not 账户键:
+            continue
+        conn = 连接()
+        try:
+            conn.execute(
+                "INSERT INTO 账户(账户键, 户名, 币种, 开户营业日, 状态) VALUES (?,?,?,?,?) "
+                "ON CONFLICT(账户键) DO UPDATE SET 户名=excluded.户名, 币种=excluded.币种, "
+                "开户营业日=excluded.开户营业日, 状态=excluded.状态",
+                (
+                    账户键,
+                    str(a.get("户名") or 账户键),
+                    str(a.get("币种") or "CNY"),
+                    str(a.get("开户营业日") or "2026-11-01"),
+                    str(a.get("状态") or "正常"),
+                ),
+            )
+            conn.commit()
+            摘要["账户"] += 1
+        finally:
+            conn.close()
+    return 摘要
 
 
 @路由.post("/抽取")
 def 执行抽取(体: 营业日请求):
     try:
         return 抽取.日终抽取(体.营业日, 体.批次编号)
+    except 日历.日历冲突 as e:
+        raise HTTPException(409, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -210,13 +276,74 @@ def 执行抽取(体: 营业日请求):
 def 执行回放(体: 营业日请求):
     try:
         return 回放.回放核对(体.营业日, 体.批次编号)
+    except 日历.日历冲突 as e:
+        raise HTTPException(409, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
 
+# ---------- 营业日历 / 假期跳日 ----------
+
+@路由.get("/日历")
+def 取日历(起: str = "", 止: str = ""):
+    try:
+        return {
+            "版本": 日历变更.当前版本(),
+            "条目": 日历变更.列日历(起, 止),
+        }
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@路由.post("/日历/清占位")
+def 执行清占位(体: 日历日请求):
+    日 = 体.日期 or 体.营业日
+    try:
+        return 日历变更.清占位(日)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@路由.get("/日历变更")
+def 取日历变更():
+    return 日历变更.列变更(100)
+
+
+@路由.post("/日历/改日")
+def 执行改日(体: 日历日请求):
+    日 = 体.日期 or 体.营业日
+    try:
+        return 日历变更.改日(日, 体.是否营业, 体.类型, 体.说明)
+    except 日历.日历冲突 as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@路由.post("/日历/批量")
+def 执行批量改日(体: 日历批量请求):
+    try:
+        return 日历变更.批量改日(体.条目)
+    except 日历.日历冲突 as e:
+        raise HTTPException(409, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+@路由.get("/核证")
+def 取核证(营业日: str, 账户键: str = ""):
+    conn = 连接()
+    try:
+        return 日期核证.日核证(conn, 营业日, 账户键)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    finally:
+        conn.close()
+
+
 @路由.post("/重置业务库")
-def 重置():
-    """开发冒烟用：清业务表并保留账户与台参。"""
+def 重置(含日历: bool = False):
+    """开发冒烟用：清业务表并保留账户与台参；含日历=True 时连营业日历一并清空。"""
     conn = 连接()
     try:
         for t in (
@@ -229,8 +356,12 @@ def 重置():
             "跳变记录",
             "旁置簿",
             "装载批次",
+            "日历变更记录",
         ):
             conn.execute(f"DELETE FROM {t}")
+        if 含日历:
+            conn.execute("DELETE FROM 营业日历")
+            conn.execute("UPDATE 营业日历纪元 SET 版本=0 WHERE 键='日历'")
         conn.commit()
         return {"完成": True, **目录.总览()}
     finally:
